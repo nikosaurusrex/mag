@@ -89,7 +89,7 @@ void SceneRenderer::RenderModel(Model *model) {
         MeshData mesh_data;
         mesh_data.material_index = mesh->material_index;
         // TODO: Change
-        mesh_data.model_matrix = glm::mat4(1.0);
+        mesh_data.model_matrix = model->transformation;
 
         // TODO: change sometime in future to not use push constants?
         // The issue is that we would need some dynamic uniforms to update uniform buffers

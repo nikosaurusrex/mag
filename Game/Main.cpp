@@ -41,14 +41,14 @@ struct Door {
 	bool open = false;
 	f32 open_degree = 0.0f;
 	f32 target_degree = 0.0f;
-	glm::mat4 wall_mat;
-	glm::mat4 door_mat;
+	Model *model_wall_door;
+	Model *model_door;
 	Sound *sound_door_open;
 	Sound *sound_door_close;
 
-	Door() {
-		wall_mat = glm::toMat4(glm::quat(glm::radians(glm::vec3(0.0f, 0.0f, 0.0f))));
-		door_mat = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, 0.50f));
+	Door(Model *model_wall_door, Model *model_door) : model_wall_door(model_wall_door), model_door(model_door) {
+		model_wall_door->transformation = glm::toMat4(glm::quat(glm::radians(glm::vec3(0.0f, 0.0f, 0.0f))));
+		model_door->transformation = glm::translate(glm::mat4(1.0), glm::vec3(0.0f, 0.0f, 0.50f));
 
         sound_door_open = new Sound("Game/Assets/Sounds/door_open.wav");
         sound_door_close = new Sound("Game/Assets/Sounds/door_close.wav");
@@ -59,7 +59,7 @@ struct Door {
 		delete sound_door_close;
 	}
 
-	void Render(f32 delta_time) {
+	void Render(SceneRenderer *renderer, f32 delta_time) {
 		const f32 speed = 66.5f * delta_time;
 		if (open) {
 			open_degree += speed;
@@ -73,17 +73,8 @@ struct Door {
 			}
 		}
 
-		/*
-		Shader *shader = shaders[SHADER_LOWPOLY];
-		Model *model_wall = models[MODEL_WALL_DOOR];
-		Model *model = models[MODEL_DOOR];
-
-		shader->Use();
-		model_mat->Set(wall_mat);
-		renderer->Render(model_wall);
-
-		model_mat->Set(door_mat);
-		renderer->Render(model);*/
+		renderer->RenderModel(model_wall_door);
+		renderer->RenderModel(model_door);
 	}
 
 	void OpenOrClose() {
@@ -122,7 +113,14 @@ int main() {
 
 	SceneRenderer *renderer = new SceneRenderer(&swapchain, &render_pass);
 
+	Model *model_wall_door = ModelImporter::Load("Game/Assets/Models/village/Stucco_Doorway_Wide_Tall.obj", render_pass.graphics_command_pool.handle);
+	Model *model_door = ModelImporter::Load("Game/Assets/Models/village/Wall_Prop_Door_Ornate.obj", render_pass.graphics_command_pool.handle);
+	Model *model_floor = ModelImporter::Load("Game/Assets/Models/village/Stone_Floor_2.obj", render_pass.graphics_command_pool.handle);
+	Model *model_waterwheel = ModelImporter::Load("Game/Assets/Models/village/Waterwheel_1.obj", render_pass.graphics_command_pool.handle);
 	Model *model_well = ModelImporter::Load("Game/Assets/Models/village/Prop_Well_1.obj", render_pass.graphics_command_pool.handle);
+	Model *model_wall_window = ModelImporter::Load("Game/Assets/Models/village/Kit_Window_Upper_Straight.obj", render_pass.graphics_command_pool.handle);
+
+	model_well->transformation = glm::translate(glm::mat4(1.0f), glm::vec3(2.0f, 0.0f, 2.0f));
 
 	SceneData scene_data;
 
@@ -152,7 +150,7 @@ int main() {
 
 	f64 waterwheel_angle = 0.0f;
 
-	Door door;
+	Door door(model_wall_door, model_door);
 
     while (engine.running) {
         while (!engine.events.empty()) {
@@ -211,12 +209,34 @@ int main() {
 		renderer->SetSceneData(&scene_data);
 		renderer->RenderModel(model_well);
 
+		model_waterwheel->transformation = TranslateRotateScale(glm::vec3(2.0f, 1.0f, -2.0f), glm::vec3(waterwheel_angle, 0.0f, 0.0f), glm::vec3(0.5f));
+		renderer->RenderModel(model_waterwheel);
+        waterwheel_angle += 10.0f * delta_time;
+
+        glm::mat4 wtr = TranslateRotate(glm::vec3(0.0f, 0.0f, 2.0f), glm::vec3(0.0f, -90.0f, 0.0f));
+		model_wall_window->transformation = wtr;
+		renderer->RenderModel(model_wall_window);
+
+        for (int x = 1; x < 5; x++) {
+            for (int z = -3; z < 7; z++) {
+				model_floor->transformation = glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, z));
+				renderer->RenderModel(model_floor);
+            }
+        }
+
+        door.Render(renderer, delta_time);
+
 		renderer->End();
     }
 
     VK_CHECK(vkDeviceWaitIdle(device->handle));
 
+	delete model_wall_door;
+	delete model_door;
+	delete model_floor;
+	delete model_waterwheel;
 	delete model_well;
+	delete model_wall_window;
 	delete renderer;
 
     render_pass.Destroy();

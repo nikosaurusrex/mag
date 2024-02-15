@@ -55,6 +55,7 @@ struct MeshData {
 struct Model {
     StorageBuffer *materials_buffer = 0;
 	array<Mesh *> meshes;
+    glm::mat4 transformation;
 
 	Model();
 	~Model();
