@@ -1,0 +1,196 @@
+#ifndef VULKAN_RENDERER_H
+#define VULKAN_RENDERER_H
+
+#include <assert.h>
+#include <stdio.h>
+
+#include <Vulkan/vulkan.h>
+#include <GLFW/glfw3.h>
+
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#include <glm/glm.hpp>
+
+#include "Common.h"
+
+#define VK_CHECK(call) \
+    if (call != VK_SUCCESS) { \
+        LogFatal("Failed Vulkan Call %s:%d\n", __FILE__, __LINE__); \
+    }
+
+struct VulkanContext {
+    array<const char *> layers;
+    array<const char *> global_extensions;
+    array<const char *> device_extensions;
+    static VulkanContext Get(bool enable_layers);
+};
+
+struct VulkanInstance {
+    static VkInstance handle;
+    static VkSurfaceKHR surface;
+
+    static void Create(VulkanContext *ctx, GLFWwindow *window, const char *name);
+    static void Destroy();
+};
+
+// Singleton because we work with one GPU only
+struct VulkanPhysicalDevice {
+    static VulkanPhysicalDevice *_instance;
+
+    VkPhysicalDevice handle = 0;
+    VkPhysicalDeviceMemoryProperties memory_properties = {};
+    u32 graphics = 0;
+    u32 present = 0;
+    VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_1_BIT;
+
+    static VulkanPhysicalDevice *Get();
+    static void Pick(VulkanContext *ctx);
+};
+
+// We implement this as a singleton because I don't plan to support creating multiple logical devices for one physical device
+struct VulkanDevice {
+    static VulkanDevice *_instance;
+
+    VkDevice handle;
+    VkQueue graphics_queue;
+    VkQueue present_queue;
+    u32 graphics_index;
+    u32 present_index;
+
+    static VulkanDevice *Get();
+    static void Create(VulkanContext *ctx);
+
+struct MeshData {
+    glm::mat4 model_matrix;
+    u32 material_index;
+};
+    static void Destroy();
+};
+
+struct VulkanCommandPool {
+    VkCommandPool handle;
+
+    void Create(u32 queue_family_index);
+    void Destroy();
+    
+    void Reset();
+};
+
+struct VulkanCommandBuffers {
+    VulkanCommandPool *pool;
+    array<VkCommandBuffer> buffers;
+
+    void Create(VulkanCommandPool *pool, u32 count);
+    void Destroy();
+
+    void Begin(u32 index, VkCommandBufferUsageFlags flags=0);
+    void End(u32 index);
+
+    void Reset(u32 index);
+};
+
+struct VulkanImage {
+    VkImage handle;
+    VkImageView view;
+    VkDeviceMemory memory;
+
+    void Create(VkFormat format, u32 width, u32 height, u32 mip_levels, VkSampleCountFlagBits samples, VkImageUsageFlags usage);
+    void Destroy();
+};
+
+struct VulkanSwapchain {
+    VkSwapchainKHR handle;
+    VkFormat format;
+    VkExtent2D extent;
+    array<VkImage> color_images;
+    array<VkImageView> color_views;
+    VulkanImage depth_image;
+    bool vsync;
+    
+    VkSurfaceFormatKHR ChooseFormat();
+    VkPresentModeKHR ChooseSwapPresentMode(bool vsync); 
+
+    void Create(bool vsync);
+    void Destroy();
+
+    void CheckResize();
+};
+
+struct RenderPass {
+    VulkanSwapchain *swapchain;
+    VulkanCommandPool graphics_command_pool;
+    VulkanCommandBuffers graphics_command_buffers;
+
+    array<VkSemaphore> image_available_semaphores;
+    array<VkSemaphore> render_finished_semaphores;
+    array<VkFence> in_flight_fences;
+
+    u32 frames_in_flight = 0;
+    u32 current_image = 0;
+    // need this because current_image is overwritten by vkAcquireNextImageKHR
+    u32 current_frame = 0;
+
+    void Create(VulkanSwapchain *swapchain);
+    void Destroy();
+
+    VkCommandBuffer Begin();
+    void End();
+};
+
+struct Shader {
+    VkShaderModule module;
+
+    void Create(const char *path);
+    void Destroy();
+};
+
+struct Vertex {
+    glm::vec<3, f32> position;
+    glm::vec<4, u8> normal;
+    glm::vec<2, f32> tex_coord;
+};
+
+struct PipelineInfo {
+    map<VkShaderStageFlagBits, Shader *> shaders;
+    array<VkDescriptorSetLayoutBinding> set_bindings;
+    array<VkPushConstantRange> push_constants;
+    
+    void AddShader(VkShaderStageFlagBits stage, Shader *shader);
+    void AddBinding(VkShaderStageFlags stage, VkDescriptorType type);
+    void AddPushConstant(VkShaderStageFlags stage, u32 size);
+};
+
+struct Pipeline {
+    VkPipeline handle;
+    VkPipelineLayout layout;
+    VkDescriptorSetLayout descriptor_set_layout;
+
+    void Create(VulkanSwapchain *swapchain, PipelineInfo *info);
+    void Destroy();
+};
+
+struct StorageBuffer {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    void *mapped;
+    VkDeviceSize size;
+
+    void Create(void *data, VkDeviceSize size);
+    void Create(VkDeviceSize size);
+    void Destroy();
+
+    void SetData(void *data, VkDeviceSize size);
+};
+
+struct IndexBuffer {
+    VkBuffer buffer;
+    VkDeviceMemory memory;
+    u32 count;
+
+    void Create(u32 *data, u32 count, VkCommandPool command_pool);
+    void Destroy();
+};
+
+// Meh
+extern PFN_vkCmdPushDescriptorSetKHR vkCmdPushDescriptorSetFunc;
+
+#endif
