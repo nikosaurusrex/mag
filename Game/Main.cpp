@@ -107,8 +107,6 @@ int main() {
     VulkanPhysicalDevice::Pick(&context);
     VulkanDevice::Create(&context);
 
-    VulkanDevice *device = VulkanDevice::Get();
-
     VulkanSwapchain swapchain;
     swapchain.Create(true);
 
@@ -235,7 +233,7 @@ int main() {
 		RenderStats::SetTitle(engine.window->handle);
     }
 
-    VK_CHECK(vkDeviceWaitIdle(device->handle));
+    VK_CHECK(vkDeviceWaitIdle(VulkanDevice::handle));
 
 	delete model_wall_door;
 	delete model_door;

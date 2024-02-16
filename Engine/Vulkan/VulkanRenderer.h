@@ -34,14 +34,12 @@ struct VulkanInstance {
 
 // Singleton because we work with one GPU only
 struct VulkanPhysicalDevice {
-    static VulkanPhysicalDevice *_instance;
-
-    VkPhysicalDevice handle = 0;
-    VkPhysicalDeviceMemoryProperties memory_properties = {};
-    VkPhysicalDeviceProperties properties = {};
-    u32 graphics = 0;
-    u32 present = 0;
-    VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_1_BIT;
+    static VkPhysicalDevice handle;
+    static VkPhysicalDeviceMemoryProperties memory_properties;
+    static VkPhysicalDeviceProperties properties;
+    static u32 graphics;
+    static u32 present;
+    static VkSampleCountFlagBits msaa_samples;
 
     static VulkanPhysicalDevice *Get();
     static void Pick(VulkanContext *ctx);
@@ -49,13 +47,11 @@ struct VulkanPhysicalDevice {
 
 // We implement this as a singleton because I don't plan to support creating multiple logical devices for one physical device
 struct VulkanDevice {
-    static VulkanDevice *_instance;
-
-    VkDevice handle;
-    VkQueue graphics_queue;
-    VkQueue present_queue;
-    u32 graphics_index;
-    u32 present_index;
+    static VkDevice handle;
+    static VkQueue graphics_queue;
+    static VkQueue present_queue;
+    static u32 graphics_index;
+    static u32 present_index;
 
     static VulkanDevice *Get();
     static void Create(VulkanContext *ctx);
