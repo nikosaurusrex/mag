@@ -4,7 +4,8 @@ workspace "MAG"
     configurations
     { 
         "Debug",
-        "Release"
+        "Release",
+        "Dist"
     }
     startproject "MAG"
 
@@ -88,12 +89,17 @@ project "Engine"
         linkoptions { "-framework OpenGL -framework Cocoa -framework IOKit" }
 
     filter "configurations:Debug"
-        defines "GLCORE_DEBUG"
+        defines "MAG_DEBUG"
         runtime "Debug"
         symbols "on"
 
     filter "configurations:Release"
-        defines "GLCORE_RELEASE"
+        defines "MAG_RELEASE"
+        runtime "Release"
+        optimize "on"
+
+    filter "configurations:Dist"
+        defines "MAG_DIST"
         runtime "Release"
         optimize "on"
 
@@ -159,13 +165,17 @@ project "MAG"
             linkoptions {"`pkg-config freetype2 --libs --static`"}
             linkoptions {"`pkg-config assimp --libs --static`"}
 
-    
         filter "configurations:Debug"
-            defines "GLCORE_DEBUG"
+            defines "MAG_DEBUG"
             runtime "Debug"
             symbols "on"
 
         filter "configurations:Release"
-            defines "GLCORE_RELEASE"
+            defines "MAG_RELEASE"
+            runtime "Release"
+            optimize "on"
+            
+        filter "configurations:Dist"
+            defines "MAG_DIST"
             runtime "Release"
             optimize "on"

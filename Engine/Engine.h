@@ -33,15 +33,6 @@ struct Event {
     };
 };
 
-struct RenderStats {
-	static f64 fps_last_time;
-	static u64 fps_temp;
-
-	static u64 fps;
-    static u64 draw_calls;
-    static u64 triangles;
-};
-
 struct Window;
 struct Engine {
     queue<Event> events;

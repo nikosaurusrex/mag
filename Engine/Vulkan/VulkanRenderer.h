@@ -38,6 +38,7 @@ struct VulkanPhysicalDevice {
 
     VkPhysicalDevice handle = 0;
     VkPhysicalDeviceMemoryProperties memory_properties = {};
+    VkPhysicalDeviceProperties properties = {};
     u32 graphics = 0;
     u32 present = 0;
     VkSampleCountFlagBits msaa_samples = VK_SAMPLE_COUNT_1_BIT;
@@ -58,11 +59,6 @@ struct VulkanDevice {
 
     static VulkanDevice *Get();
     static void Create(VulkanContext *ctx);
-
-struct MeshData {
-    glm::mat4 model_matrix;
-    u32 material_index;
-};
     static void Destroy();
 };
 
@@ -129,10 +125,13 @@ struct RenderPass {
     // need this because current_image is overwritten by vkAcquireNextImageKHR
     u32 current_frame = 0;
 
+    VkCommandBuffer BeginFrame();
+    void EndFrame();
+
     void Create(VulkanSwapchain *swapchain);
     void Destroy();
 
-    VkCommandBuffer Begin();
+    void Begin();
     void End();
 };
 
@@ -163,6 +162,8 @@ struct Pipeline {
     VkPipeline handle;
     VkPipelineLayout layout;
     VkDescriptorSetLayout descriptor_set_layout;
+    // TODO: cache
+    VkPipelineCache cache = 0;
 
     void Create(VulkanSwapchain *swapchain, PipelineInfo *info);
     void Destroy();
@@ -188,6 +189,28 @@ struct IndexBuffer {
 
     void Create(u32 *data, u32 count, VkCommandPool command_pool);
     void Destroy();
+};
+
+struct RenderStats {
+    static VkQueryPool query_pool;
+	static f64 mspf_cpu;
+    static f64 mspf_gpu;
+    static u64 draw_calls;
+    static u64 triangles;
+
+    static f64 cpu_frame_time_begin;
+
+    static void Create();
+    static void Destroy();
+
+    static void Begin(VkCommandBuffer cmd_buf);
+    static void EndGPU(VkCommandBuffer cmd_buf);
+    static void EndCPU();
+
+    static void DrawCall();
+    static void CountTriangles(u64 count);
+
+    static void SetTitle(GLFWwindow *window);
 };
 
 // Meh

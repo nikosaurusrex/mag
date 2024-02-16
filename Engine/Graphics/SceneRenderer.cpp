@@ -20,20 +20,34 @@ SceneRenderer::SceneRenderer(VulkanSwapchain *swapchain, RenderPass *render_pass
     // TODO: check if ok
     vertex_shader.Destroy();
     fragment_shader.Destroy();
+
+    RenderStats::Create();
 }
 
 SceneRenderer::~SceneRenderer() {
+    RenderStats::Destroy();
+
     scene_data_buffer.Destroy();
     pipeline.Destroy();
 }
 
 void SceneRenderer::Begin() {
-    cmd_buf = render_pass->Begin();
+    cmd_buf = render_pass->BeginFrame();
+
+    RenderStats::Begin(cmd_buf);
+
+    render_pass->Begin();
     vkCmdBindPipeline(cmd_buf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.handle);
 }
 
 void SceneRenderer::End() {
     render_pass->End();
+
+    RenderStats::EndGPU(cmd_buf);
+
+    render_pass->EndFrame();
+
+    RenderStats::EndCPU();
 }
 
 void SceneRenderer::SetSceneData(SceneData *scene_data) {
@@ -74,9 +88,12 @@ void SceneRenderer::RenderModel(Model *model) {
         VkWriteDescriptorSet mesh_write_descriptors[1] = {};
 
         VkDescriptorBufferInfo vertex_buffer_info = {};
+        VkDeviceSize vertex_buffer_size = mesh->vertices_buffer->size;
         vertex_buffer_info.buffer = mesh->vertices_buffer->buffer;
         vertex_buffer_info.offset = 0;
-        vertex_buffer_info.range = mesh->vertices_buffer->size;
+        vertex_buffer_info.range = vertex_buffer_size;
+
+        RenderStats::CountTriangles(vertex_buffer_size / sizeof(Vertex) / 3);
 
         mesh_write_descriptors[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
         mesh_write_descriptors[0].dstBinding = 1;
@@ -98,6 +115,7 @@ void SceneRenderer::RenderModel(Model *model) {
 
         vkCmdBindIndexBuffer(cmd_buf, mesh->index_buffer->buffer, 0, VK_INDEX_TYPE_UINT32);
 
+        RenderStats::DrawCall();
         vkCmdDrawIndexed(cmd_buf, mesh->index_buffer->count, 1, 0, 0, 0);
     }
 }

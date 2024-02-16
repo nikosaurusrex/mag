@@ -19,8 +19,6 @@
 #include <glm/gtx/quaternion.hpp>
 #include <glm/gtx/transform.hpp>
 
-#include <chrono>
-
 glm::mat4 TranslateScale(glm::vec3 trans, glm::vec3 scale) {
 	return  glm::translate(glm::mat4(1.0f), trans) *
 		glm::scale(glm::mat4(1.0f), scale);
@@ -55,6 +53,7 @@ struct Door {
 	}
 
 	~Door() {
+
 		delete sound_door_open;
 		delete sound_door_close;
 	}
@@ -97,7 +96,12 @@ int main() {
 
 	InitSound();
 
+#ifdef MAG_DEBUG
     VulkanContext context = VulkanContext::Get(true);
+#else
+    VulkanContext context = VulkanContext::Get(false);
+#endif
+
     VulkanInstance::Create(&context, engine.window->handle, "Engine");
 
     VulkanPhysicalDevice::Pick(&context);
@@ -227,6 +231,8 @@ int main() {
         door.Render(renderer, delta_time);
 
 		renderer->End();
+
+		RenderStats::SetTitle(engine.window->handle);
     }
 
     VK_CHECK(vkDeviceWaitIdle(device->handle));

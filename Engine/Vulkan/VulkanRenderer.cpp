@@ -90,6 +90,7 @@ void VulkanPhysicalDevice::Pick(VulkanContext *ctx) {
         vkEnumerateDeviceExtensionProperties(dev, 0, &extension_count, 0); 
 
         array<VkExtensionProperties> avaiable_extensions(extension_count);
+
         vkEnumerateDeviceExtensionProperties(dev, 0, &extension_count, avaiable_extensions.data());
         
         set<string> required_extensions(ctx->device_extensions.begin(), ctx->device_extensions.end());
@@ -117,6 +118,7 @@ void VulkanPhysicalDevice::Pick(VulkanContext *ctx) {
             }
 
             VkBool32 present_support = false;
+
             vkGetPhysicalDeviceSurfaceSupportKHR(dev, i, VulkanInstance::surface, &present_support);
             if (present_support) {
                 present_index = i;
@@ -136,10 +138,9 @@ void VulkanPhysicalDevice::Pick(VulkanContext *ctx) {
     }
 
     vkGetPhysicalDeviceMemoryProperties(_instance->handle, &_instance->memory_properties);
+    vkGetPhysicalDeviceProperties(_instance->handle, &_instance->properties);
 
-    VkPhysicalDeviceProperties properties;
-    vkGetPhysicalDeviceProperties(_instance->handle, &properties);
-    VkSampleCountFlags msaa_flags = properties.limits.framebufferColorSampleCounts & properties.limits.framebufferDepthSampleCounts;
+    VkSampleCountFlags msaa_flags = _instance->properties.limits.framebufferColorSampleCounts & _instance->properties.limits.framebufferDepthSampleCounts;
 
     VkSampleCountFlagBits samples;
     if (msaa_flags & VK_SAMPLE_COUNT_16_BIT) samples = VK_SAMPLE_COUNT_16_BIT;
@@ -209,6 +210,7 @@ void VulkanDevice::Create(VulkanContext *ctx) {
     VK_CHECK(vkCreateDevice(phy_dev->handle, &device_info, 0, &device));
 
     vkGetDeviceQueue(device, phy_dev->graphics, 0, &_instance->graphics_queue);
+
     vkGetDeviceQueue(device, phy_dev->present, 0, &_instance->present_queue);
 
     _instance->handle = device;
@@ -530,12 +532,12 @@ void RenderPass::Destroy() {
     graphics_command_pool.Destroy();
 }
 
-VkCommandBuffer RenderPass::Begin() {
+VkCommandBuffer RenderPass::BeginFrame() {
     VulkanDevice *device = VulkanDevice::Get();
 
     swapchain->CheckResize();
 
-	VK_CHECK(vkWaitForFences(device->handle, 1, &in_flight_fences[current_frame], VK_TRUE, UINT64_MAX));
+    VK_CHECK(vkWaitForFences(device->handle, 1, &in_flight_fences[current_frame], VK_TRUE, UINT64_MAX));
 
     VkResult result = vkAcquireNextImageKHR(
         device->handle, swapchain->handle,
@@ -545,11 +547,51 @@ VkCommandBuffer RenderPass::Begin() {
     if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
         LogFatal("Failed to acquire swap chain image");
     }
-
+    
     VK_CHECK(vkResetFences(device->handle, 1, &in_flight_fences[current_frame]));
 
     graphics_command_buffers.Reset(current_frame);
     graphics_command_buffers.Begin(current_frame, VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    return graphics_command_buffers.buffers[current_frame];
+}
+
+void RenderPass::EndFrame() {
+    VulkanDevice *device = VulkanDevice::Get();
+
+    graphics_command_buffers.End(current_frame);
+
+    VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+
+    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &image_available_semaphores[current_frame];
+    submit_info.pWaitDstStageMask = &submit_stage_mask;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &graphics_command_buffers.buffers[current_frame];
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &render_finished_semaphores[current_frame];
+
+    VK_CHECK(vkQueueSubmit(device->graphics_queue, 1, &submit_info, in_flight_fences[current_frame]));
+
+    VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &render_finished_semaphores[current_frame];
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &swapchain->handle;
+    present_info.pImageIndices = &current_image;
+
+    VkResult result = vkQueuePresentKHR(device->present_queue, &present_info);
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        LogFatal("Failed to present swap chain image");
+    }
+
+    current_frame = (current_frame + 1) % frames_in_flight;
+}
+
+void RenderPass::Begin() {
+    VulkanDevice *device = VulkanDevice::Get();
+    VkCommandBuffer graphics_command_buffer = graphics_command_buffers.buffers[current_frame];
 
     VkRenderingAttachmentInfo color_attachment = { VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO };
     color_attachment.imageView = swapchain->color_views.at(current_image);
@@ -571,8 +613,6 @@ VkCommandBuffer RenderPass::Begin() {
     rendering_info.colorAttachmentCount = 1;
     rendering_info.pColorAttachments = &color_attachment;
     rendering_info.pDepthAttachment = &depth_attachment;
-
-    VkCommandBuffer graphics_command_buffer = graphics_command_buffers.buffers[current_frame];
 
     VkImageMemoryBarrier2 color_image_barrier = { VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2 };
     color_image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
@@ -610,8 +650,6 @@ VkCommandBuffer RenderPass::Begin() {
 
     vkCmdSetViewport(graphics_command_buffer, 0, 1, &viewport);
     vkCmdSetScissor(graphics_command_buffer, 0, 1, &scissor);
-
-    return graphics_command_buffer;
 }
 
 void RenderPass::End() {
@@ -642,35 +680,6 @@ void RenderPass::End() {
     dependency_info.pImageMemoryBarriers = &image_barrier;
     
     vkCmdPipelineBarrier2(graphics_command_buffer, &dependency_info);
-
-    graphics_command_buffers.End(current_frame);
-
-    VkPipelineStageFlags submit_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-
-    VkSubmitInfo submit_info = { VK_STRUCTURE_TYPE_SUBMIT_INFO };
-    submit_info.waitSemaphoreCount = 1;
-    submit_info.pWaitSemaphores = &image_available_semaphores[current_frame];
-    submit_info.pWaitDstStageMask = &submit_stage_mask;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &graphics_command_buffers.buffers[current_frame];
-    submit_info.signalSemaphoreCount = 1;
-    submit_info.pSignalSemaphores = &render_finished_semaphores[current_frame];
-
-    VK_CHECK(vkQueueSubmit(device->graphics_queue, 1, &submit_info, in_flight_fences[current_frame]));
-
-    VkPresentInfoKHR present_info = { VK_STRUCTURE_TYPE_PRESENT_INFO_KHR };
-    present_info.waitSemaphoreCount = 1;
-    present_info.pWaitSemaphores = &render_finished_semaphores[current_frame];
-    present_info.swapchainCount = 1;
-    present_info.pSwapchains = &swapchain->handle;
-    present_info.pImageIndices = &current_image;
-
-    VkResult result = vkQueuePresentKHR(device->present_queue, &present_info);
-    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
-        LogFatal("Failed to present swap chain image");
-    }
-
-    current_frame = (current_frame + 1) % frames_in_flight;
 }
 
 static u32 ReadShaderFile(const char *file_name, u8 **out_buffer) {
@@ -830,8 +839,7 @@ void Pipeline::Create(VulkanSwapchain *swapchain, PipelineInfo *info) {
     pipeline_info.pDynamicState = &dynamic_state_info;
     pipeline_info.layout = layout;
 
-    // TODO: cache
-    VK_CHECK(vkCreateGraphicsPipelines(device, 0, 1, &pipeline_info, 0, &handle));
+    VK_CHECK(vkCreateGraphicsPipelines(device, cache, 1, &pipeline_info, 0, &handle));
 }
 
 void Pipeline::Destroy() {
@@ -966,3 +974,80 @@ void IndexBuffer::Destroy() {
     vkDestroyBuffer(device, buffer, 0);
     vkFreeMemory(device, memory, 0);
 }
+
+VkQueryPool RenderStats::query_pool = VK_NULL_HANDLE;
+f64 RenderStats::mspf_cpu = 0;
+f64 RenderStats::mspf_gpu = 0;
+u64 RenderStats::draw_calls = 0;
+u64 RenderStats::triangles = 0;
+f64 RenderStats::cpu_frame_time_begin = 0;
+
+#ifndef MAG_DIST
+void RenderStats::Create() {
+    VkQueryPoolCreateInfo query_pool_info = { VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO };
+    query_pool_info.queryType = VK_QUERY_TYPE_TIMESTAMP;
+    query_pool_info.queryCount = 2;
+
+    VK_CHECK(vkCreateQueryPool(VulkanDevice::Get()->handle, &query_pool_info, 0, &query_pool));
+}
+
+void RenderStats::Destroy() {
+    vkDestroyQueryPool(VulkanDevice::Get()->handle, query_pool, 0);
+}
+
+void RenderStats::Begin(VkCommandBuffer cmd_buf) {
+    draw_calls = 0;
+    triangles = 0;
+    cpu_frame_time_begin = glfwGetTime() * 1000;
+
+    vkCmdResetQueryPool(cmd_buf, query_pool, 0, 2);
+    vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 0);
+}
+
+void RenderStats::EndGPU(VkCommandBuffer cmd_buf) {
+    vkCmdWriteTimestamp(cmd_buf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, query_pool, 1);
+}
+
+void RenderStats::EndCPU() {
+    f64 cpu_frame_time_end = glfwGetTime() * 1000;
+    f64 cpu_frame_time_delta = cpu_frame_time_end - cpu_frame_time_begin;
+    mspf_cpu = mspf_cpu * 0.95 + cpu_frame_time_delta * 0.05;
+
+    u64 query_results[2];
+    
+    VK_CHECK(vkGetQueryPoolResults(
+        VulkanDevice::Get()->handle, query_pool,
+        0, 2, sizeof(query_results), query_results,
+        sizeof(query_results[0]), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT
+    ));
+
+    f64 timestamp_period = VulkanPhysicalDevice::Get()->properties.limits.timestampPeriod;
+    f64 gpu_frame_time_begin = f64(query_results[0]) * timestamp_period * 1e-6;
+    f64 gpu_frame_time_end = f64(query_results[1]) * timestamp_period * 1e-6;
+    f64 gpu_frame_time_delta = gpu_frame_time_end - gpu_frame_time_begin;
+    mspf_gpu = mspf_gpu * 0.95 + gpu_frame_time_delta * 0.05;
+}
+
+void RenderStats::DrawCall() {
+    draw_calls++;
+}
+
+void RenderStats::CountTriangles(u64 count) {
+    triangles += count;
+}
+
+void RenderStats::SetTitle(GLFWwindow *window) {
+    char title[256];
+    sprintf(title, "cpu: %.2fms, gpu: %.2fms, render calls: %llu, triangles: %llu", mspf_cpu, mspf_gpu, draw_calls, triangles);
+    glfwSetWindowTitle(window, title);
+}
+#else
+void RenderStats::Create() {}
+void RenderStats::Destroy() {}
+void RenderStats::Begin(VkCommandBuffer cmd_buf);
+void RenderStats::EndGPU(VkCommandBuffer cmd_buf);
+void RenderStats::EndCPU(VkCommandBuffer cmd_buf);
+void RenderStats::DrawCall() {}
+void RenderStats::CountTriangles(u64 count) {}
+void RenderStats::SetTitle(GLFWwindow *window) {}
+#endif
