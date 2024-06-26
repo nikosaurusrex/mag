@@ -1,4 +1,2 @@
 # mag
- The most amazing game
-
-# Credits
+First time rendering with Vulkan
